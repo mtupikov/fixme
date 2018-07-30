@@ -9,4 +9,15 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
     <artifactId>fixme-broker</artifactId>
+    <dependencies>
+        <dependency>
+            <groupId>fix-me</groupId>
+            <artifactId>fixme-core</artifactId>
+            <version>1.0</version>
+        </dependency>
+    </dependencies>
+    <properties>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+    </properties>
 </project>
