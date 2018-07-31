@@ -5,8 +5,7 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousServerSocketChannel;
 import java.nio.channels.AsynchronousSocketChannel;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
+import java.nio.channels.CompletionHandler;
 
 public class Server implements Runnable {
 	private AsynchronousServerSocketChannel	serverChannel = null;
@@ -16,29 +15,46 @@ public class Server implements Runnable {
 	public void run() {
 		try {
 			serverChannel = AsynchronousServerSocketChannel.open();
-			InetSocketAddress hostBrokerAddress = new InetSocketAddress("localhost", 5000);
-			InetSocketAddress hostMarketAddress = new InetSocketAddress("localhost", 5001);
-			serverChannel.bind(hostBrokerAddress);
-			//serverChannel.bind(hostMarketAddress);
-			Future acceptResult = serverChannel.accept();
-			clientChannel = (AsynchronousSocketChannel) acceptResult.get();
-			if (clientChannel != null && clientChannel.isOpen())
-				while (true) {
-					ByteBuffer buffer = ByteBuffer.allocate(1024);
-					Future result = clientChannel.read(buffer);
-					while (!result.isDone()) {}
-					buffer.flip();
-					String message = new String(buffer.array()).trim();
-					System.out.println(message);
-					buffer.clear();
-					if (message.toLowerCase().equals("exit"))
-						break;
-				}
-			else
-				System.err.println("Error when creating client channel");
-			closeChannels();
-		} catch (IOException | InterruptedException | ExecutionException e) {
+			InetSocketAddress hostAddress = new InetSocketAddress("localhost", 5000);
+			serverChannel.bind(hostAddress);
+			while (true) {
+				serverChannel.accept(null, new CompletionHandler<AsynchronousSocketChannel,Object>() {
+							@Override
+							public void completed (AsynchronousSocketChannel result, Object attachment) {
+								if (serverChannel.isOpen()){
+									serverChannel.accept(null, this);
+								}
+								clientChannel = result;
+								if ((clientChannel != null) && (clientChannel.isOpen())) {
+									ReadWriteHandler handler = new ReadWriteHandler();
+									ByteBuffer buffer = ByteBuffer.allocate(32);
+									String kek = "kek";
+									clientChannel.read(buffer, kek, handler);
+								}
+							}
+							@Override
+							public void failed(Throwable exc, Object attachment) {
+								// process error
+							}
+						});
+				System.in.read();
+			}
+		} catch (IOException e) {
 			e.printStackTrace();
+		}
+	}
+
+	class ReadWriteHandler implements CompletionHandler<Integer, String> {
+
+		@Override
+		public void completed (Integer result, String attachment) {
+			ByteBuffer buffer = ByteBuffer.allocate(32);
+			clientChannel.write(buffer, "lol", this);
+		}
+
+		@Override
+		public void failed(Throwable exc, String attachment) {
+			//
 		}
 	}
 
