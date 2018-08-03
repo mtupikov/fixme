@@ -6,7 +6,8 @@ import com.core.decoders.SellOrBuyDecoder;
 import com.core.encoders.AcceptConnectionEncoder;
 import com.core.encoders.ExecuteOrRejectEncoder;
 import com.core.encoders.SellOrBuyEncoder;
-import com.core.exceptions.ChecksumsAreNotEqual;
+import com.core.exceptions.ChecksumIsNotEqual;
+import com.core.exceptions.ClientNotInRoutingTable;
 import com.core.messages.*;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
@@ -89,16 +90,31 @@ public class Server implements Runnable {
 				routingTable.put(ret.getId(), ctx);
 				System.out.println("Accepted a connection from " + brokerOrMarketString() + ": " + newID);
 			} else if (	message.getMessageType().equals(MessageTypes.MESSAGE_BUY.toString()) ||
-					message.getMessageType().equals(MessageTypes.MESSAGE_SELL.toString())) {
+						message.getMessageType().equals(MessageTypes.MESSAGE_SELL.toString())) {
 				MessageSellOrBuy ret = (MessageSellOrBuy)msg;
-				if (ret.getMsgMD5().equals(ret.getChecksum()))
-					throw new ChecksumsAreNotEqual();
-			} else if (	message.getMessageType().equals(MessageTypes.MESSAGE_EXECUTE.toString()) ||
-					message.getMessageType().equals(MessageTypes.MESSAGE_REJECT.toString())) {
+				if (!ret.getMsgMD5().equals(ret.getChecksum()))
+					throw new ChecksumIsNotEqual();
+				if (!checkIfInTable(ret.getMarketId()))
+					throw new ClientNotInRoutingTable();
+				getFromTableById(ret.getMarketId()).writeAndFlush(ret);
+			} else {
 				MessageExecuteOrReject ret = (MessageExecuteOrReject)msg;
-				if (ret.getMsgMD5().equals(ret.getChecksum()))
-					throw new ChecksumsAreNotEqual();
+				if (ret.getMessageAction().equals(MessageTypes.MESSAGE_EXECUTE.toString()) ||
+					ret.getMessageAction().equals(MessageTypes.MESSAGE_REJECT.toString())) {
+					if (!ret.getMsgMD5().equals(ret.getChecksum()))
+						throw new ChecksumIsNotEqual();
+				}
 			}
 		}
+
+		// TODO ADD MessageSellOrBuy And MessageExecuteOrReject together!!!
+	}
+
+	private boolean checkIfInTable(int id) {
+		return routingTable.containsKey(id);
+	}
+
+	private ChannelHandlerContext getFromTableById(int id) {
+		return routingTable.get(id);
 	}
 }
