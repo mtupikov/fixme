@@ -1,5 +1,8 @@
 package com.core;
 
+import com.core.messages.FIXMessage;
+import com.core.messages.MessageAcceptConnection;
+import com.core.messages.MessageTypes;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -31,8 +34,8 @@ public class Client implements Runnable {
 			.handler(new ChannelInitializer<SocketChannel>() {
 				@Override
 				public void initChannel(SocketChannel ch) throws Exception {
-					ch.pipeline().addLast(new ResponseEncoder(),
-					new RequestDecoder(), new ClientHandler());
+					ch.pipeline().addLast(new Encoder(),
+					new Decoder(), new ClientHandler());
 				}
 			}).option(ChannelOption.SO_KEEPALIVE, true);
 			ChannelFuture f = b.connect(host, port).sync();
@@ -47,20 +50,33 @@ public class Client implements Runnable {
 	class ClientHandler extends ChannelInboundHandlerAdapter {
 		@Override
 		public void channelActive(ChannelHandlerContext ctx) throws Exception {
-			FIXMessage msg = new FIXMessage("lol", 12, "kek", 22, 21, "dsa");
-			System.out.println("Enter message type: ");
-			msg.setMessageType(getTextFromUser());
+			System.out.println(clientName + " is connecting to router..");
+			FIXMessage msg = new MessageAcceptConnection(MessageTypes.MESSAGE_ACCEPT_CONNECTION.toString(), 0, 0);
 			ctx.writeAndFlush(msg);
 		}
 
 		@Override
 		public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-			System.out.println(msg);
+			FIXMessage message = (FIXMessage) msg;
+			if (message.getMessageType().equals(MessageTypes.MESSAGE_ACCEPT_CONNECTION.toString())) {
+				MessageAcceptConnection ret = new MessageAcceptConnection(message);
+				System.out.println("Connection with router established. ID: " + ret.getId());
+			} else if (	message.getMessageType().equals(MessageTypes.MESSAGE_BUY.toString()) ||
+					message.getMessageType().equals(MessageTypes.MESSAGE_SELL.toString())) {
+
+			} else if (	message.getMessageType().equals(MessageTypes.MESSAGE_EXECUTE.toString()) ||
+					message.getMessageType().equals(MessageTypes.MESSAGE_REJECT.toString())) {
+
+			}
+		}
+
+		private void channelWrite(ChannelHandlerContext ctx) throws Exception {
+
 		}
 
 		@Override
 		public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
-			channelActive(ctx);
+			channelWrite(ctx);
 		}
 
 		private String getTextFromUser() throws Exception {
