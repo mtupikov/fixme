@@ -1,88 +1,96 @@
 package com.router;
 
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
-import java.nio.ByteBuffer;
-import java.nio.channels.AsynchronousChannelGroup;
-import java.nio.channels.AsynchronousServerSocketChannel;
-import java.nio.channels.AsynchronousSocketChannel;
-import java.nio.channels.CompletionHandler;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import com.core.FIXMessage;
+import com.core.RequestDecoder;
+import com.core.ResponseEncoder;
+import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.*;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.nio.NioServerSocketChannel;
 
 public class Server implements Runnable {
 
-	class FIXattachment {
-		AsynchronousServerSocketChannel	server;
-		AsynchronousSocketChannel		client;
-		ByteBuffer						fixMessage;
-		SocketAddress					clientAddress;
-		boolean							isRead;
+	static final int MARKET_SERVER = 1;
+	static final int BROKER_SERVER = 2;
+
+	private int serverType;
+
+	Server(int serverType) {
+		this.serverType = serverType;
 	}
 
 	@Override
 	public void run() {
+		switch (serverType) {
+			case MARKET_SERVER:
+				createMarketServer();
+				break;
+			case BROKER_SERVER:
+				createBrokerServer();
+				break;
+		}
+	}
+
+	private void createMarketServer() {
+		EventLoopGroup bossGroup = new NioEventLoopGroup();
+		EventLoopGroup workerGroup = new NioEventLoopGroup();
 		try {
-			AsynchronousChannelGroup group = AsynchronousChannelGroup.withThreadPool(Executors.newSingleThreadExecutor());
-			AsynchronousServerSocketChannel serverChannel = AsynchronousServerSocketChannel.open(group);
-			InetSocketAddress hostAddress = new InetSocketAddress("localhost", 5000);
-			serverChannel.bind(hostAddress);
-			FIXattachment newFIX = new FIXattachment();
-			newFIX.server = serverChannel;
-			serverChannel.accept(newFIX, new ConnectionHandler());
-		} catch (IOException e) {
+			ServerBootstrap b = new ServerBootstrap();
+			b.group(bossGroup, workerGroup)
+					.channel(NioServerSocketChannel.class)
+					.childHandler(new ChannelInitializer<SocketChannel>() {
+						@Override
+						public void initChannel(SocketChannel ch) throws Exception {
+							ch.pipeline().addLast(new RequestDecoder(),
+									new ResponseEncoder(),
+									new ProcessingHandler());
+						}
+					}).option(ChannelOption.SO_BACKLOG, 128)
+					.childOption(ChannelOption.SO_KEEPALIVE, true);
+			ChannelFuture f = b.bind(5001).sync();
+			f.channel().closeFuture().sync();
+		} catch (InterruptedException e) {
 			e.printStackTrace();
+		} finally {
+			workerGroup.shutdownGracefully();
+			bossGroup.shutdownGracefully();
 		}
 	}
 
-	class ConnectionHandler implements CompletionHandler<AsynchronousSocketChannel, FIXattachment> {
-		@Override
-		public void completed(AsynchronousSocketChannel client, FIXattachment attachment) {
-			try {
-				SocketAddress clientAddr = client.getRemoteAddress();
-				System.out.println("Accepted a connection from " + clientAddr);
-				attachment.server.accept(attachment, this);
-				ReadWriteHandler handler = new ReadWriteHandler();
-				FIXattachment fix = new FIXattachment();
-				fix.server = attachment.server;
-				fix.client = client;
-				fix.fixMessage = ByteBuffer.allocate(2048);
-				fix.isRead = true;
-				fix.clientAddress = clientAddr;
-				client.read(fix.fixMessage, fix, handler);
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
-		}
-
-		@Override
-		public void failed(Throwable exc, FIXattachment attachment) {
-			exc.printStackTrace();
+	private void createBrokerServer() {
+		EventLoopGroup bossGroup = new NioEventLoopGroup();
+		EventLoopGroup workerGroup = new NioEventLoopGroup();
+		try {
+			ServerBootstrap b = new ServerBootstrap();
+			b.group(bossGroup, workerGroup)
+					.channel(NioServerSocketChannel.class)
+					.childHandler(new ChannelInitializer<SocketChannel>() {
+						@Override
+						public void initChannel(SocketChannel ch) throws Exception {
+							ch.pipeline().addLast(new RequestDecoder(),
+									new ResponseEncoder(),
+									new ProcessingHandler());
+						}
+					}).option(ChannelOption.SO_BACKLOG, 128)
+					.childOption(ChannelOption.SO_KEEPALIVE, true);
+			ChannelFuture f = b.bind(5000).sync();
+			f.channel().closeFuture().sync();
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		} finally {
+			workerGroup.shutdownGracefully();
+			bossGroup.shutdownGracefully();
 		}
 	}
 
-	class ReadWriteHandler implements CompletionHandler<Integer, FIXattachment> {
+	class ProcessingHandler extends ChannelInboundHandlerAdapter {
 		@Override
-		public void completed (Integer result, FIXattachment attachment) {
-			System.out.println(attachment.isRead);
-			if (attachment.isRead) {
-				String message = new String(attachment.fixMessage.array());
-				message = message.trim();
-				System.out.println("Client " + attachment.clientAddress + " says: " + message);
-				attachment.isRead = false;
-				attachment.fixMessage.rewind();
-			} else {
-				attachment.client.write(attachment.fixMessage, attachment, this);
-				attachment.isRead = true;
-				attachment.fixMessage.clear();
-				attachment.client.read(attachment.fixMessage, attachment, this);
-			}
-		}
-
-		@Override
-		public void failed(Throwable exc, FIXattachment attachment) {
-			exc.printStackTrace();
+		public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+			FIXMessage FIXMessage = (FIXMessage)msg;
+			ctx.writeAndFlush(FIXMessage);
+			System.out.println(FIXMessage);
 		}
 	}
 }
+

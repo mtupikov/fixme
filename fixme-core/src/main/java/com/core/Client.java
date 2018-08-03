@@ -1,25 +1,16 @@
 package com.core;
 
+import io.netty.bootstrap.Bootstrap;
+import io.netty.channel.*;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.nio.NioSocketChannel;
+
 import java.io.BufferedReader;
-import java.io.IOException;
 import java.io.InputStreamReader;
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
-import java.nio.ByteBuffer;
-import java.nio.channels.AsynchronousServerSocketChannel;
-import java.nio.channels.AsynchronousSocketChannel;
-import java.nio.channels.CompletionHandler;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 
 public class Client implements Runnable {
 	private String clientName;
-
-	class FIXattachment {
-		AsynchronousSocketChannel		client;
-		ByteBuffer						fixMessage;
-		boolean							isRead;
-	}
 
 	public Client(String clientName) {
 		this.clientName = clientName;
@@ -27,67 +18,55 @@ public class Client implements Runnable {
 
 	@Override
 	public void run() {
+		String host = "localhost";
+		int port = 5000;
+		if (clientName.equals("Market"))
+			port = 5001;
+		System.out.println(port);
+		EventLoopGroup workerGroup = new NioEventLoopGroup();
 		try {
-			AsynchronousSocketChannel client = AsynchronousSocketChannel.open();
-			int port;
-			if (clientName.equals("Market"))
-				port = 5001;
-			else
-				port = 5000;
-			InetSocketAddress hostAddress = new InetSocketAddress("localhost", port);
-			Future future = client.connect(hostAddress);
-			future.get();
-			System.out.println(clientName + " client has started: " + client.isOpen());
-			FIXattachment newFIX = new FIXattachment();
-			newFIX.client = client;
-			newFIX.fixMessage = ByteBuffer.allocate(2048);
-			newFIX.isRead = false;
-			newFIX.fixMessage.put("Accept me plz".getBytes());
-			newFIX.fixMessage.flip();
-			ReadWriteHandler readWriteHandler = new ReadWriteHandler();
-			client.write(newFIX.fixMessage, newFIX, readWriteHandler);
-			Thread.currentThread().join();
-		} catch (IOException | InterruptedException | ExecutionException e) {
+			Bootstrap b = new Bootstrap();
+			b.group(workerGroup)
+			.channel(NioSocketChannel.class)
+			.handler(new ChannelInitializer<SocketChannel>() {
+				@Override
+				public void initChannel(SocketChannel ch) throws Exception {
+					ch.pipeline().addLast(new ResponseEncoder(),
+					new RequestDecoder(), new ClientHandler());
+				}
+			}).option(ChannelOption.SO_KEEPALIVE, true);
+			ChannelFuture f = b.connect(host, port).sync();
+			f.channel().closeFuture().sync();
+		} catch (InterruptedException e) {
 			e.printStackTrace();
+		} finally {
+			workerGroup.shutdownGracefully();
 		}
 	}
 
-	class ReadWriteHandler implements CompletionHandler<Integer, FIXattachment> {
+	class ClientHandler extends ChannelInboundHandlerAdapter {
 		@Override
-		public void completed(Integer result, FIXattachment attachment) {
-			System.out.println(attachment.isRead);
-			if (attachment.isRead) {
-				attachment.fixMessage.flip();
-				String message = new String(attachment.fixMessage.array());
-				message = message.trim();
-				System.out.println("Server responded: " + message);
-			} else {
-				String message = null;
-				try {
-					message = getMessage();
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
-				if (message != null) {
-					if (message.toLowerCase().equals("exit"))
-						Thread.currentThread().interrupt();
-					attachment.isRead = true;
-					attachment.fixMessage.clear();
-					attachment.fixMessage.put(message.getBytes());
-					attachment.client.write(attachment.fixMessage, attachment, this);
-				}
-			}
+		public void channelActive(ChannelHandlerContext ctx) throws Exception {
+			FIXMessage msg = new FIXMessage("lol", 12, "kek", 22, 21, "dsa");
+			System.out.println("Enter message type: ");
+			msg.setMessageType(getTextFromUser());
+			ctx.writeAndFlush(msg);
 		}
 
 		@Override
-		public void failed(Throwable exc, FIXattachment attachment) {
-			exc.printStackTrace();
+		public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+			System.out.println(msg);
 		}
-	}
 
-	private String getMessage() throws IOException {
-		System.out.println("Enter a message: ");
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		return br.readLine();
+		@Override
+		public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
+			channelActive(ctx);
+		}
+
+		private String getTextFromUser() throws Exception {
+			BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+			return br.readLine();
+		}
 	}
 }
+

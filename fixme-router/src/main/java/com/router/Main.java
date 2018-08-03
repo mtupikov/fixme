@@ -13,9 +13,12 @@ import java.nio.charset.Charset;
 
 public class Main {
 	public static void main(String[] args) {
-		Server server = new Server();
-		Thread serverThread = new Thread(server);
-		serverThread.start();
+		Server brokerServer = new Server(Server.BROKER_SERVER);
+		Thread brokerServerThread = new Thread(brokerServer);
+		brokerServerThread.start();
+		Server marketServer = new Server(Server.MARKET_SERVER);
+		Thread marketServerThread = new Thread(marketServer);
+		marketServerThread.start();
 		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
 		String command;
 		while (true) {
