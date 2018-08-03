@@ -1,4 +1,4 @@
-package com.core;
+package com.core.encoders;
 
 import com.core.messages.*;
 import io.netty.buffer.ByteBuf;
@@ -11,7 +11,6 @@ public class Encoder extends MessageToByteEncoder<FIXMessage> {
 	private final Charset charset = Charset.forName("UTF-8");
 	@Override
 	protected void encode(ChannelHandlerContext ctx, FIXMessage msg, ByteBuf out) throws Exception {
-		System.out.println("encoding");
 		out.writeInt(msg.getTypeLength());
 		out.writeCharSequence(msg.getMessageType(), charset);
 		if (msg.getMessageType().equals(MessageTypes.MESSAGE_ACCEPT_CONNECTION.toString())) {
@@ -19,7 +18,7 @@ public class Encoder extends MessageToByteEncoder<FIXMessage> {
 			out.writeInt(io.getId());
 			out.writeInt(io.getChecksumLength());
 			out.writeCharSequence(io.getChecksum(), charset);
-		} else if (	msg.getMessageType().equals(MessageTypes.MESSAGE_BUY.toString()) ||
+		} else if ( msg.getMessageType().equals(MessageTypes.MESSAGE_BUY.toString()) ||
 					msg.getMessageType().equals(MessageTypes.MESSAGE_SELL.toString())) {
 			MessageSellOrBuy io = (MessageSellOrBuy) msg;
 			out.writeInt(io.getId());

@@ -1,8 +1,13 @@
 package com.router;
 
+import com.core.decoders.AcceptConnectionDecoder;
+import com.core.decoders.ExecuteOrRejectDecoder;
+import com.core.decoders.SellOrBuyDecoder;
+import com.core.encoders.AcceptConnectionEncoder;
+import com.core.encoders.ExecuteOrRejectEncoder;
+import com.core.encoders.SellOrBuyEncoder;
+import com.core.exceptions.ChecksumsAreNotEqual;
 import com.core.messages.*;
-import com.core.Decoder;
-import com.core.Encoder;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -32,6 +37,10 @@ public class Server implements Runnable {
 		return serverType == MARKET_SERVER ? "market" : "broker";
 	}
 
+	private boolean brokerOrMarketBool() {
+		return serverType != MARKET_SERVER;
+	}
+
 	private void createServer(int port) {
 		bossGroup = new NioEventLoopGroup();
 		workerGroup = new NioEventLoopGroup();
@@ -42,8 +51,13 @@ public class Server implements Runnable {
 					.childHandler(new ChannelInitializer<SocketChannel>() {
 						@Override
 						public void initChannel(SocketChannel ch) throws Exception {
-							ch.pipeline().addLast(new Decoder(),
-									new Encoder(),
+							ch.pipeline().addLast(
+									new AcceptConnectionEncoder(),
+									new SellOrBuyEncoder(),
+									new ExecuteOrRejectEncoder(),
+									new AcceptConnectionDecoder(),
+									new SellOrBuyDecoder(),
+									new ExecuteOrRejectDecoder(),
 									new ProcessingHandler());
 						}
 					}).option(ChannelOption.SO_BACKLOG, 128)
@@ -67,16 +81,23 @@ public class Server implements Runnable {
 		public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
 			FIXMessage message = (FIXMessage)msg;
 			if (message.getMessageType().equals(MessageTypes.MESSAGE_ACCEPT_CONNECTION.toString())) {
-				MessageAcceptConnection ret  = new MessageAcceptConnection(message);
-				ret.setId(69);
+				MessageAcceptConnection ret  = (MessageAcceptConnection)msg;
+				String newID = ctx.channel().remoteAddress().toString().substring(11);
+				newID = newID.concat(brokerOrMarketBool() ? "2" : "3");
+				ret.setId(Integer.valueOf(newID));
 				ctx.writeAndFlush(ret);
-				System.out.println("Accepted a connection from " + brokerOrMarketString() + ": " + ctx.channel().remoteAddress());
+				routingTable.put(ret.getId(), ctx);
+				System.out.println("Accepted a connection from " + brokerOrMarketString() + ": " + newID);
 			} else if (	message.getMessageType().equals(MessageTypes.MESSAGE_BUY.toString()) ||
 					message.getMessageType().equals(MessageTypes.MESSAGE_SELL.toString())) {
-
+				MessageSellOrBuy ret = (MessageSellOrBuy)msg;
+				if (ret.getMsgMD5().equals(ret.getChecksum()))
+					throw new ChecksumsAreNotEqual();
 			} else if (	message.getMessageType().equals(MessageTypes.MESSAGE_EXECUTE.toString()) ||
 					message.getMessageType().equals(MessageTypes.MESSAGE_REJECT.toString())) {
-
+				MessageExecuteOrReject ret = (MessageExecuteOrReject)msg;
+				if (ret.getMsgMD5().equals(ret.getChecksum()))
+					throw new ChecksumsAreNotEqual();
 			}
 		}
 	}

@@ -1,4 +1,4 @@
-package com.core;
+package com.core.decoders;
 
 import com.core.messages.*;
 import io.netty.buffer.ByteBuf;

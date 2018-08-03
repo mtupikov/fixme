@@ -1,19 +1,23 @@
 package com.core;
 
-import com.core.messages.FIXMessage;
-import com.core.messages.MessageAcceptConnection;
-import com.core.messages.MessageTypes;
+import com.core.decoders.AcceptConnectionDecoder;
+import com.core.decoders.ExecuteOrRejectDecoder;
+import com.core.decoders.SellOrBuyDecoder;
+import com.core.encoders.AcceptConnectionEncoder;
+import com.core.encoders.ExecuteOrRejectEncoder;
+import com.core.encoders.SellOrBuyEncoder;
+import com.core.messages.*;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
-
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 
 public class Client implements Runnable {
-	private String clientName;
+	private String	clientName;
+	private int		uniqueID;
 
 	public Client(String clientName) {
 		this.clientName = clientName;
@@ -34,8 +38,14 @@ public class Client implements Runnable {
 			.handler(new ChannelInitializer<SocketChannel>() {
 				@Override
 				public void initChannel(SocketChannel ch) throws Exception {
-					ch.pipeline().addLast(new Encoder(),
-					new Decoder(), new ClientHandler());
+					ch.pipeline().addLast(
+							new AcceptConnectionEncoder(),
+							new SellOrBuyEncoder(),
+							new ExecuteOrRejectEncoder(),
+							new AcceptConnectionDecoder(),
+							new SellOrBuyDecoder(),
+							new ExecuteOrRejectDecoder(),
+							new ClientHandler());
 				}
 			}).option(ChannelOption.SO_KEEPALIVE, true);
 			ChannelFuture f = b.connect(host, port).sync();
@@ -51,21 +61,24 @@ public class Client implements Runnable {
 		@Override
 		public void channelActive(ChannelHandlerContext ctx) throws Exception {
 			System.out.println(clientName + " is connecting to router..");
-			FIXMessage msg = new MessageAcceptConnection(MessageTypes.MESSAGE_ACCEPT_CONNECTION.toString(), 0, 0);
+			MessageAcceptConnection msg = new MessageAcceptConnection(MessageTypes.MESSAGE_ACCEPT_CONNECTION.toString(), 0, 0);
 			ctx.writeAndFlush(msg);
 		}
 
 		@Override
 		public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-			FIXMessage message = (FIXMessage) msg;
+			FIXMessage message = (FIXMessage)msg;
 			if (message.getMessageType().equals(MessageTypes.MESSAGE_ACCEPT_CONNECTION.toString())) {
-				MessageAcceptConnection ret = new MessageAcceptConnection(message);
-				System.out.println("Connection with router established. ID: " + ret.getId());
+				MessageAcceptConnection ret = (MessageAcceptConnection)msg;
+				uniqueID = ret.getId();
+				System.out.println("Connection with router established. ID: " + uniqueID);
 			} else if (	message.getMessageType().equals(MessageTypes.MESSAGE_BUY.toString()) ||
 					message.getMessageType().equals(MessageTypes.MESSAGE_SELL.toString())) {
+				MessageSellOrBuy ret = (MessageSellOrBuy)msg;
 
 			} else if (	message.getMessageType().equals(MessageTypes.MESSAGE_EXECUTE.toString()) ||
 					message.getMessageType().equals(MessageTypes.MESSAGE_REJECT.toString())) {
+				MessageExecuteOrReject ret = (MessageExecuteOrReject)msg;
 
 			}
 		}
