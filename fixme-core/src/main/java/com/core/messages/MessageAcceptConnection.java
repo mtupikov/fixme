@@ -13,24 +13,23 @@ public class MessageAcceptConnection extends FIXMessage {
 
 	public MessageAcceptConnection() {}
 
-	public MessageAcceptConnection(FIXMessage copy) {
-		super(copy);
-	}
-
 	public int getId() {
 		return id;
 	}
 
 	public void setId(int id) {
 		this.id = id;
+	}
+
+	public void setNewCheckSum() {
 		setChecksum(MD5Creator.createMD5FromObject(String.valueOf(id)));
 	}
 
 	@Override
 	public String toString() {
-		return "MessageSellOrBuy {" +
-				"MSG_TYPE = '" + getMessageType() + "'" +
-				"|ID = " + id +
+		return "MessageAcceptConnection {" +
+				"ID = " + id +
+				"|MSG_TYPE = '" + getMessageType() + "'" +
 				"|CHECKSUM = '" + getChecksum() + "'" +
 				'}';
 	}

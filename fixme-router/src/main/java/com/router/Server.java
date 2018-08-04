@@ -1,10 +1,7 @@
 package com.router;
 
-import com.core.decoders.AcceptConnectionDecoder;
-import com.core.decoders.ExecuteOrRejectDecoder;
-import com.core.decoders.SellOrBuyDecoder;
+import com.core.decoders.Decoder;
 import com.core.encoders.AcceptConnectionEncoder;
-import com.core.encoders.ExecuteOrRejectEncoder;
 import com.core.encoders.SellOrBuyEncoder;
 import com.core.exceptions.ChecksumIsNotEqual;
 import com.core.exceptions.ClientNotInRoutingTable;
@@ -53,12 +50,9 @@ public class Server implements Runnable {
 						@Override
 						public void initChannel(SocketChannel ch) throws Exception {
 							ch.pipeline().addLast(
+									new Decoder(),
 									new AcceptConnectionEncoder(),
 									new SellOrBuyEncoder(),
-									new ExecuteOrRejectEncoder(),
-									new AcceptConnectionDecoder(),
-									new SellOrBuyDecoder(),
-									new ExecuteOrRejectDecoder(),
 									new ProcessingHandler());
 						}
 					}).option(ChannelOption.SO_BACKLOG, 128)
@@ -79,35 +73,56 @@ public class Server implements Runnable {
 
 	class ProcessingHandler extends ChannelInboundHandlerAdapter {
 		@Override
-		public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+		public void channelRead(ChannelHandlerContext ctx, Object msg) {
 			FIXMessage message = (FIXMessage)msg;
-			if (message.getMessageType().equals(MessageTypes.MESSAGE_ACCEPT_CONNECTION.toString())) {
-				MessageAcceptConnection ret  = (MessageAcceptConnection)msg;
-				String newID = ctx.channel().remoteAddress().toString().substring(11);
-				newID = newID.concat(brokerOrMarketBool() ? "2" : "3");
-				ret.setId(Integer.valueOf(newID));
-				ctx.writeAndFlush(ret);
-				routingTable.put(ret.getId(), ctx);
-				System.out.println("Accepted a connection from " + brokerOrMarketString() + ": " + newID);
-			} else if (	message.getMessageType().equals(MessageTypes.MESSAGE_BUY.toString()) ||
+			if (message.getMessageType().equals(MessageTypes.MESSAGE_ACCEPT_CONNECTION.toString()))
+				acceptNewConnection(ctx, msg);
+			else if (	message.getMessageType().equals(MessageTypes.MESSAGE_BUY.toString()) ||
 						message.getMessageType().equals(MessageTypes.MESSAGE_SELL.toString())) {
 				MessageSellOrBuy ret = (MessageSellOrBuy)msg;
-				if (!ret.getMsgMD5().equals(ret.getChecksum()))
-					throw new ChecksumIsNotEqual();
-				if (!checkIfInTable(ret.getMarketId()))
-					throw new ClientNotInRoutingTable();
-				getFromTableById(ret.getMarketId()).writeAndFlush(ret);
-			} else {
-				MessageExecuteOrReject ret = (MessageExecuteOrReject)msg;
-				if (ret.getMessageAction().equals(MessageTypes.MESSAGE_EXECUTE.toString()) ||
-					ret.getMessageAction().equals(MessageTypes.MESSAGE_REJECT.toString())) {
-					if (!ret.getMsgMD5().equals(ret.getChecksum()))
-						throw new ChecksumIsNotEqual();
+				try {
+					checkForErrors(ret);
+					if (checkIfMessageIsRejectedOrExecuted(ret))
+						return;
+					System.out.println("Sending request to market with ID " + ret.getMarketId());
+					getFromTableById(ret.getMarketId()).channel().writeAndFlush(ret);
+				} catch (Exception e) {
+					System.out.println(e.getMessage());
+					ret.setMessageAction(MessageTypes.MESSAGE_REJECT.toString());
+					ret.setNewCheckSum();
+					ctx.writeAndFlush(ret);
 				}
 			}
 		}
+	}
 
-		// TODO ADD MessageSellOrBuy And MessageExecuteOrReject together!!!
+	private void acceptNewConnection(ChannelHandlerContext ctx, Object msg) {
+		MessageAcceptConnection ret  = (MessageAcceptConnection)msg;
+		String newID = ctx.channel().remoteAddress().toString().substring(11);
+		newID = newID.concat(brokerOrMarketBool() ? "2" : "3");
+		ret.setId(Integer.valueOf(newID));
+		ret.setNewCheckSum();
+		ctx.writeAndFlush(ret);
+		routingTable.put(ret.getId(), ctx);
+		System.out.println("Accepted a connection from " + brokerOrMarketString() + ": " + newID);
+	}
+
+	private void checkForErrors(MessageSellOrBuy ret) throws Exception {
+		if (!ret.getMsgMD5().equals(ret.getChecksum()))
+			throw new ChecksumIsNotEqual();
+		if (!checkIfInTable(ret.getMarketId()))
+			throw new ClientNotInRoutingTable();
+	}
+
+	private boolean checkIfMessageIsRejectedOrExecuted(MessageSellOrBuy ret) throws Exception {
+		if (ret.getMessageAction().equals(MessageTypes.MESSAGE_EXECUTE.toString()) ||
+			ret.getMessageAction().equals(MessageTypes.MESSAGE_REJECT.toString())) {
+			if (!ret.getMsgMD5().equals(ret.getChecksum()))
+				throw new ChecksumIsNotEqual();
+			getFromTableById(ret.getId()).writeAndFlush(ret);
+			return true;
+		}
+		return false;
 	}
 
 	private boolean checkIfInTable(int id) {

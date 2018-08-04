@@ -19,7 +19,6 @@ public class AcceptConnectionEncoder extends MessageToByteEncoder<MessageAcceptC
 			out.writeInt(msg.getId());
 			out.writeInt(msg.getChecksumLength());
 			out.writeCharSequence(msg.getChecksum(), charset);
-			System.out.println("Sending: " + msg);
 		}
 	}
 }

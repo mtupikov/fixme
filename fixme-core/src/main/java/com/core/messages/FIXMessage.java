@@ -13,12 +13,6 @@ public class FIXMessage {
 		this.marketId = marketId;
 	}
 
-	public FIXMessage(FIXMessage copy) {
-		this.messageType = copy.messageType;
-		this.typeLength = copy.messageType.length();
-		this.marketId = copy.marketId;
-	}
-
 	public FIXMessage() {}
 
 	public String getMessageType() {
